@@ -1,229 +1,326 @@
-# Inflowlytics – Import Service (Architecture & Specification)
+Inflowlytics – Import Service (Architecture & Specification)
 
-> Architecture document for the **import-service** microservice in the Inflowlytics project.  
-> The goal of this project is to learn production-grade patterns: microservices, DDD, Hexagonal Architecture, security, containerization, observability.
+Architecture document for the import-service microservice in the Inflowlytics project.
+The goal of this project is to learn production-grade patterns: microservices, DDD, Hexagonal Architecture, security, containerization, and observability.
 
----
+1. Project Context (Inflowlytics)
 
-## 1. Project Context (Inflowlytics)
+Inflowlytics is a microservices-based financial data processing platform built with:
 
-**Inflowlytics** is a microservices-based project built with:
+Java 21
 
-- Spring Boot 3
-- Microservices architecture + DDD
-- Hexagonal Architecture (Ports & Adapters)
-- API Gateway: Spring Cloud Gateway
-- Authentication/Authorization: Keycloak (OAuth2/OIDC, JWT)
-- Inter-service communication: REST (Kafka planned for the future)
-- Asynchronous long-running tasks: Spring Batch
-- Database per microservice: PostgreSQL
-- Containerization: Docker
-- Orchestration: Kubernetes (Helm)
-- Observability: Actuator + OpenTelemetry + Jaeger
-- CI/CD: GitHub Actions
-- Frontend: React (MVP may start with low-code)
+Spring Boot 3
 
-This is an **educational + production-like project** aimed at learning real-world architectural patterns.
+Microservices + DDD
 
----
+Hexagonal Architecture (Ports & Adapters)
 
-## 2. Architectural Principles (DDD + Hexagonal)
+API Gateway: Spring Cloud Gateway
 
-### 2.1. Hexagonal Architecture (Ports & Adapters)
+Authentication: Keycloak (OAuth2 / OIDC / JWT)
 
-- The **application core (domain + application)** must not depend on any framework (no Spring).
-- The outside world communicates with the core through **ports (interfaces)**.
-- Technical integrations are implemented as **adapters**.
+Database per microservice: PostgreSQL
 
-### 2.2. Spring Usage Rules
+Asynchronous processing: Spring Batch
 
-- ❌ No Spring annotations in `domain`
-- ❌ No Spring annotations in `application`
-- ✅ Adapters (`adapters/in`, `adapters/out`) may use Spring annotations
-- ✅ `config/BeanConfiguration` is responsible for wiring ports to adapters
+Containerization: Docker
 
-### 2.3. Use Cases
+Orchestration: Kubernetes (Helm)
 
-- ✅ **1 use case = 1 inbound port = 1 service (implementation)**
-- Each use case has:
-  - its own inbound port (interface)
-  - its own service class (implementation)
-- Examples:
-  - `ImportFileUseCase` → `ImportFileService`
-  - `GetImportStatusUseCase` → `GetImportStatusService`
-  - `RetryImportUseCase` → `RetryImportService` (future)
-  - `CancelImportUseCase` → `CancelImportService` (future)
+Observability: Actuator + OpenTelemetry + Jaeger
 
-### 2.4. Controllers (Inbound Adapters)
+CI/CD: GitHub Actions
 
-- ❌ Do NOT create 1 controller per use case
-- ✅ **1 controller per resource / bounded context**
-- For import-service:
-  - one `ImportController`
-  - multiple endpoints
-  - each endpoint calls a different inbound port
+Frontend: React (MVP may start simple)
 
-### 2.5. Naming Conventions
+This is an educational + production-like project focused on architecture quality.
 
-- Inbound ports: `*UseCase`  
-  e.g. `ImportFileUseCase`, `GetImportStatusUseCase`
-- Implementations: `*Service`  
-  e.g. `ImportFileService`, `GetImportStatusService`
-- Outbound adapters: `JpaXxxRepository`, `KafkaXxxPublisher`, `LocalFileStorage`
-- No `@Service` in `application` – only `BeanConfiguration`
+2. Role of Import Service
 
----
+The import-service is responsible for:
 
-## 3. Import Service – MVP Scope
+Receiving financial report files (CSV/XLSX)
 
-MVP features:
+Storing files
 
-- POST `/imports`
-  - upload a file (CSV/XLSX)
-  - store file (FileStorage)
-  - create `ImportJob`
-  - start async processing (Spring Batch)
-  - return `jobId`
+Managing import jobs
 
-- GET `/imports/{id}/status`
-  - returns import status: `PENDING | PROCESSING | COMPLETED | FAILED`
+Running asynchronous parsing and persistence
 
-MVP constraints:
+Reporting import status
 
-- ❌ Kafka – not used yet
-- ❌ Multi-tenancy – planned for later
-- ❌ AI – separate microservice in the future
+Important architectural decision:
 
----
+Import-service is process-oriented.
+It manages the import workflow, not the financial domain.
 
-## 4. Target Project Structure (DDD + Hexagonal)
+It does NOT own:
 
-```text
-inflowlytics-import-service/
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-├── Dockerfile
-├── docker-compose.local.yml
-├── README.md
-├── build.gradle
-└── src/
-    ├── main/
-    │   ├── java/com/inflowlytics/imports/
-    │   │   ├── ImportServiceApplication.java      # Spring Boot main
-    │   │   │
-    │   │   ├── adapters/                          # HEXAGON: ADAPTERS
-    │   │   │   ├── in/
-    │   │   │   │   └── rest/
-    │   │   │   │       └── ImportController.java  # 1 controller = Import resource
-    │   │   │   │
-    │   │   │   └── out/
-    │   │   │       ├── persistence/
-    │   │   │       │   ├── JpaImportJobRepository.java
-    │   │   │       │   ├── JpaTransactionRepository.java
-    │   │   │       │   └── entity/
-    │   │   │       │       ├── ImportJobEntity.java
-    │   │   │       │       └── TransactionEntity.java
-    │   │   │       │
-    │   │   │       ├── messaging/
-    │   │   │       │   └── KafkaEventPublisher.java
-    │   │   │       │
-    │   │   │       ├── storage/
-    │   │   │       │   ├── LocalFileStorage.java
-    │   │   │       │   └── S3FileStorage.java       # future
-    │   │   │       │
-    │   │   │       └── batch/
-    │   │   │           ├── ImportJobConfig.java     # Spring Batch Job/Step
-    │   │   │           ├── CsvTransactionReader.java
-    │   │   │           ├── TransactionProcessor.java
-    │   │   │           └── TransactionWriter.java
-    │   │   │
-    │   │   ├── application/                        # HEXAGON: CORE (Use Cases)
-    │   │   │   ├── ports/
-    │   │   │   │   ├── in/
-    │   │   │   │   │   ├── ImportFileUseCase.java
-    │   │   │   │   │   ├── GetImportStatusUseCase.java
-    │   │   │   │   │   ├── RetryImportUseCase.java        # future
-    │   │   │   │   │   └── CancelImportUseCase.java       # future
-    │   │   │   │   └── out/
-    │   │   │   │       ├── ImportJobRepository.java
-    │   │   │   │       ├── TransactionRepository.java
-    │   │   │   │       ├── FileStorage.java
-    │   │   │   │       └── EventPublisher.java
-    │   │   │   │
-    │   │   │   └── service/
-    │   │   │       ├── ImportFileService.java
-    │   │   │       ├── GetImportStatusService.java
-    │   │   │       ├── RetryImportService.java      # future
-    │   │   │       └── CancelImportService.java     # future
-    │   │   │
-    │   │   ├── domain/                              # DDD CORE
-    │   │   │   ├── model/
-    │   │   │   │   ├── ImportJob.java               # Aggregate Root
-    │   │   │   │   ├── ImportStatus.java
-    │   │   │   │   └── Transaction.java
-    │   │   │   │
-    │   │   │   └── events/
-    │   │   │       ├── FileUploadedEvent.java
-    │   │   │       └── FileParsedEvent.java
-    │   │   │
-    │   │   └── config/
-    │   │       └── BeanConfiguration.java           # wiring ports ↔ adapters
-    │   │
-    │   └── resources/
-    │       └── application.yml
-    │
-    └── test/
-        └── java/com/inflowlytics/imports/
-            ├── application/
-            │   ├── ImportFileServiceTest.java
-            │   ├── GetImportStatusServiceTest.java
-            │   └── RetryImportServiceTest.java      # future
-            │
-            └── adapters/
-                └── in/rest/
-                    └── ImportControllerTest.java
-5. Testing Strategy
+categorization logic
+
+analytics logic
+
+financial domain rules
+
+3. Architectural Principles
+   3.1 Hexagonal Architecture (Ports & Adapters)
+
+The application follows strict Ports & Adapters principles:
+
+The core (domain + application) does NOT depend on Spring.
+
+All technical integrations are implemented as adapters.
+
+Dependencies always point inward.
+
+Structure:
+
+domain → business model (pure Java)
+
+application → use cases + ports
+
+adapters → REST, JPA, Batch, Storage
+
+config → explicit wiring (BeanConfiguration)
+
+3.2 Spring Usage Rules
+
+❌ No Spring annotations in domain
+❌ No Spring annotations in application
+✅ Spring allowed only in adapters and config
+✅ No @Service in application layer
+✅ Beans wired explicitly in BeanConfiguration
+
+3.3 Use Case Rule
+
+Strict rule:
+
+1 Use Case = 1 Inbound Port = 1 Service
+
+MVP Use Cases:
+
+ImportFileUseCase → ImportFileService
+
+GetImportStatusUseCase → GetImportStatusService
+
+4. Domain Model (Import Context Only)
+
+Import-service domain is intentionally minimal.
+
+Aggregate Root
+ImportJob
+
+Represents the lifecycle of a file import.
+
+Responsibilities:
+
+Track import status
+
+Maintain job identity
+
+Represent process state
+
+ImportStatus
+
+Enum representing:
+
+PENDING
+
+PROCESSING
+
+COMPLETED
+
+FAILED
+
+Important Clarification
+
+Transaction is NOT part of the domain model in import-service.
+
+Reason:
+
+Import-service does not manage financial business logic.
+
+Transactions are results of processing.
+
+Financial domain logic will belong to other services (e.g., categorization-service, analytics-service).
+
+Therefore:
+
+Transaction exists only as a persistence model (TransactionEntity)
+
+It does not live in domain/
+
+5. Spring Batch Integration
+
+Spring Batch is treated as an infrastructure adapter.
+
+It is responsible for:
+
+Reading CSV
+
+Processing rows
+
+Writing transactions to DB
+
+Updating import status
+
+Batch components:
+
+Reader
+
+Processor
+
+Writer
+
+Job configuration
+
+JobExecutionListener (for status updates)
+
+Batch status must be mapped to ImportStatus.
+Domain must not depend on Batch APIs.
+
+6. Target Project Structure (Clean Version)
+   inflowlytics-import-service/
+   ├── .github/
+   │   └── workflows/
+   │       └── ci.yml
+   ├── Dockerfile
+   ├── docker-compose.local.yml
+   ├── README.md
+   ├── build.gradle
+   └── src/
+   ├── main/
+   │   ├── java/com/inflowlytics/imports/
+   │   │
+   │   │   ├── ImportServiceApplication.java
+   │   │
+   │   │   ├── adapters/
+   │   │   │   ├── in/
+   │   │   │   │   └── rest/
+   │   │   │   │       └── ImportController.java
+   │   │   │   │
+   │   │   │   └── out/
+   │   │   │       ├── persistence/
+   │   │   │       │   ├── JpaImportJobRepository.java
+   │   │   │       │   ├── JpaTransactionRepository.java
+   │   │   │       │   └── entity/
+   │   │   │       │       ├── ImportJobEntity.java
+   │   │   │       │       └── TransactionEntity.java
+   │   │   │       │
+   │   │   │       ├── storage/
+   │   │   │       │   └── LocalFileStorage.java
+   │   │   │       │
+   │   │   │       └── batch/
+   │   │   │           ├── ImportJobConfig.java
+   │   │   │           ├── CsvTransactionReader.java
+   │   │   │           ├── TransactionProcessor.java
+   │   │   │           ├── TransactionWriter.java
+   │   │   │           └── ImportJobExecutionListener.java
+   │   │   │
+   │   │   ├── application/
+   │   │   │   ├── ports/
+   │   │   │   │   ├── in/
+   │   │   │   │   │   ├── ImportFileUseCase.java
+   │   │   │   │   │   └── GetImportStatusUseCase.java
+   │   │   │   │   │
+   │   │   │   │   └── out/
+   │   │   │   │       ├── ImportJobRepository.java
+   │   │   │   │       ├── TransactionRepository.java
+   │   │   │   │       ├── FileStorage.java
+   │   │   │   │       └── ImportJobStarter.java
+   │   │   │   │
+   │   │   │   └── service/
+   │   │   │       ├── ImportFileService.java
+   │   │   │       └── GetImportStatusService.java
+   │   │   │
+   │   │   ├── domain/
+   │   │   │   └── model/
+   │   │   │       ├── ImportJob.java
+   │   │   │       └── ImportStatus.java
+   │   │   │
+   │   │   └── config/
+   │   │       └── BeanConfiguration.java
+   │   │
+   │   └── resources/
+   │       └── application.yml
+   │
+   └── test/
+   └── java/com/inflowlytics/imports/
+   ├── application/
+   │   ├── ImportFileServiceTest.java
+   │   └── GetImportStatusServiceTest.java
+   │
+   └── adapters/
+   └── in/rest/
+   └── ImportControllerTest.java
+7. Processing Flow
+   Upload
+
+POST /imports
+
+File stored via FileStorage
+
+ImportJob created (PENDING)
+
+Batch job started
+
+Status returned with jobId
+
+Batch Execution
+
+beforeJob → status = PROCESSING
+
+CSV parsed in chunks
+
+Transactions written to DB
+
+afterJob:
+
+COMPLETED
+
+or FAILED
+
+8. Testing Strategy
 
 Use case tests:
 
-no Spring context
+No Spring context
 
-outbound ports mocked
+Outbound ports mocked
+
+Pure unit tests
 
 Adapter tests:
 
-REST controllers tested with MockMvc / WebTestClient
+REST via MockMvc / WebTestClient
 
-Core logic tested in isolation from frameworks
+Batch tested separately
 
-6. Roadmap (Import Service)
+Domain tests:
 
-MVP
+Pure unit tests
 
-file upload
+No framework dependencies
 
-import status endpoint
+9. Roadmap
 
-batch processing (CSV → DB)
+Next steps after MVP:
 
-Next steps
+Retry / Cancel import
 
-link import status with Spring Batch (JobExecutionListener)
+Kafka event publishing
 
-Kafka events (FileUploadedEvent, FileParsedEvent)
+S3 storage
 
-retry / cancel import job
-
-S3 as FileStorage
-
-multi-tenancy
-
-business validations
+Multi-tenancy
 
 OpenAPI contracts
 
-7. Design Rules (Must-follow)
+Improved validation
+
+Observability improvements
+
+10. Design Rules (Must Follow)
 
 Controllers contain no business logic
 
@@ -231,6 +328,6 @@ Core does not depend on Spring
 
 Adapters communicate with core only via ports
 
-Each use case has its own service class
+Each use case has its own service
 
-API is grouped by resources, not by use cases
+Import-service manages process, not financial domain
